@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import fs from "fs";
 
 async function startServer() {
   const app = express();
@@ -11,10 +12,13 @@ async function startServer() {
 
   app.post("/api/prospect", async (req, res) => {
     try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      console.log("SERVER USING API KEY:", apiKey ? apiKey.substring(0, 5) + "..." : "MISSING");
+      
       const { nicho, localizacao } = req.body;
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
+        model: "gemini-2.5-flash",
         contents: `Encontre 10 estabelecimentos reais para o nicho "${nicho}" na localização "${localizacao}". Siga as regras de análise e score definidas.`,
         config: {
           systemInstruction: `Você é um sistema avançado de prospecção B2B e inteligência comercial focado em negócios locais no Brasil.
@@ -66,10 +70,26 @@ Se a avaliação não estiver publicamente disponível, envie 0 para avaliacao e
           }
         }
       });
-      res.json({ text: response.text });
+      
+      let responseText = response.text || "{}";
+      
+      // Clean up markdown block if present
+      if (responseText.includes("\`\`\`")) {
+        const match = responseText.match(/\`\`\`(?:json)?([\s\S]*?)\`\`\`/);
+        if (match && match[1]) {
+          responseText = match[1].trim();
+        }
+      }
+      
+      res.json({ text: responseText });
     } catch (err: any) {
-      console.error(err);
-      res.status(500).json({ error: err.message });
+      console.error("API Prospect Error:", err);
+      // Clean up the error message for the end user if it relates to missing or invalid key
+      if (err.message && err.message.includes("API key not valid")) {
+        return res.status(400).json({ error: "Sua chave do Gemini API é inválida. Por favor, coloque uma chave real e válida de aistudio.google.com no arquivo .env" });
+      }
+      const errorMessage = err.message || JSON.stringify(err);
+      res.status(500).json({ error: "Erro interno ao processar a IA: " + errorMessage });
     }
   });
 

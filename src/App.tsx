@@ -44,10 +44,20 @@ export default function App() {
         body: JSON.stringify({ nicho, localizacao })
       });
       
-      const responseData = await resp.json();
-      
+      const responseText = await resp.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Falha ao fazer parse da resposta JSON. Resposta em texto:", responseText);
+        if (responseText.trim().startsWith('<') || responseText.includes('The page could not be found')) {
+          throw new Error('Erro 404. O servidor retornou uma página HTML ao invés de dados. Na Vercel, confirme que sua função está em api/prospect.ts ou na rota correta.');
+        }
+        throw new Error("Não foi possível processar a resposta do servidor. Se você acabou de publicar, aguarde alguns minutos.");
+      }
+
       if (!resp.ok) {
-        throw new Error(responseData.error || 'Erro na resposta do servidor.');
+        throw new Error(responseData?.error || 'Erro na resposta do servidor.');
       }
 
       if (responseData.text) {
