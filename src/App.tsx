@@ -1,9 +1,5 @@
 import React, { useState } from 'react';
 import { Target, MapPin, Search, Phone, Globe, Star, Map, AlertCircle, Building2, TrendingUp, CheckCircle2, Navigation, Loader2, MessageCircle } from 'lucide-react';
-import { GoogleGenAI, Type } from '@google/genai';
-
-// Initialize the API. The API key is securely injected by AI Studio.
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 function formatWhatsappLink(phone: string) {
   const digits = phone.replace(/\D/g, '');
@@ -42,66 +38,34 @@ export default function App() {
     setError('');
     
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: `Encontre 10 estabelecimentos reais para o nicho "${nicho}" na localização "${localizacao}". Siga as regras de análise e score definidas.`,
-        config: {
-          systemInstruction: `Você é um sistema avançado de prospecção B2B e inteligência comercial focado em negócios locais no Brasil.
-Seu objetivo é utilizar a ferramenta de Google Search para encontrar estabelecimentos reais, analisando sua presença digital e calculando um score de oportunidade de fechamento.
-
-REGRAS DE BUSCA:
-1. Busque ativamente web links reais referentes a negócios do nicho e localização exatos informados.
-2. Extraia dados rigorosos e reais. Não invente nomes, telefones ou endereços.
-3. Encontre e retorne no mínimo 10 estabelecimentos DIFERENTES.
-
-REGRAS DE CÁLCULO DE SCORE (Oportunidade Comercial):
-Você deve calcular o score de cada lead iniciando em 0 e aplicando as seguintes regras (máximo 100, mínimo 0, se passar de 100 limite em 100):
-- Se o lead NÃO tem website ativo: adicione +40 pontos.
-- Se o lead NÃO tem Google Meu Negócio (GMN) ou ele é fraco (poucas fotos, sem horário, descrição incompleta): adicione +35 pontos.
-- Se o lead NÃO tem telefone cadastrado (ou se estava indisponível): subtraia -10 pontos.
-- Se o lead tem menos de 20 avaliações no Google: adicione +15 pontos.
-- Se a avaliação média for abaixo de 4.0: adicione +10 pontos.
-
-ESTRUTURA DE RESPOSTA OBRIGATÓRIA:
-Utilize string vazia "" para campos que você não encontrar (ex: website, telefone, URL).
-Se a avaliação não estiver publicamente disponível, envie 0 para avaliacao e 0 para numAvaliacoes.`,
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              leads: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    nome: { type: Type.STRING, description: "Nome real do Negócio" },
-                    endereco: { type: Type.STRING, description: "Endereço com Rua, Número e Cidade" },
-                    telefone: { type: Type.STRING, description: "(XX) XXXXX-XXXX ou vazio se não encontrar" },
-                    website: { type: Type.STRING, description: "URL do site do estabelecimento ou vazio" },
-                    avaliacao: { type: Type.NUMBER, description: "Nota média (0 a 5)" },
-                    numAvaliacoes: { type: Type.NUMBER, description: "Quantidade de reviews do negócio" },
-                    temGMN: { type: Type.BOOLEAN, description: "Tem Google Meu Negócio visível" },
-                    gmnFraco: { type: Type.BOOLEAN, description: "Perfil do Google parece descuidado/incompleto" },
-                    googleMapsUrl: { type: Type.STRING, description: "Link do Maps se encontrado" },
-                    scoreOportunidade: { type: Type.NUMBER, description: "Score de 0 a 100 de acordo com as regras" },
-                    justificativaScore: { type: Type.STRING, description: "Breve explicação do porquê esse score (ex: sem site e nota baixa)" }
-                  },
-                  required: ["nome", "endereco", "telefone", "website", "avaliacao", "numAvaliacoes", "temGMN", "gmnFraco", "googleMapsUrl", "scoreOportunidade", "justificativaScore"]
-                }
-              }
-            },
-            required: ["leads"]
-          }
-        }
+      const resp = await fetch('/api/prospect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nicho, localizacao })
       });
+      
+      const responseData = await resp.json();
+      
+      if (!resp.ok) {
+        throw new Error(responseData.error || 'Erro na resposta do servidor.');
+      }
 
-      if (response.text) {
-        const data = JSON.parse(response.text.trim());
-        if (data.leads && data.leads.length > 0) {
-          setLeads(data.leads.sort((a: Lead, b: Lead) => b.scoreOportunidade - a.scoreOportunidade));
-        } else {
-          setError('Nenhum lead retornado pela busca. Tente reformular os termos.');
+      if (responseData.text) {
+        let text = responseData.text.trim();
+        // Remove markdown formatting if the model wrapped it in ```json...```
+        if (text.startsWith('```')) {
+          text = text.replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+        }
+        
+        try {
+          const data = JSON.parse(text);
+          if (data.leads && data.leads.length > 0) {
+            setLeads(data.leads.sort((a: Lead, b: Lead) => b.scoreOportunidade - a.scoreOportunidade));
+          } else {
+            setError('Nenhum lead retornado pela busca. Tente reformular os termos.');
+          }
+        } catch (e) {
+          setError('A resposta não estava no formato JSON esperado.');
         }
       } else {
         setError('Nenhuma resposta retornada. A busca pode ter falhado.');
